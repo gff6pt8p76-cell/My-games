@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Game Hub - Play Chess Online</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.4.7/peerjs.min.js"></script>
+<style>
+*{box-sizing:border-box}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;font-family:system-ui,sans-serif;background:#1e1e2a;color:#eee;min-height:100vh;display:flex;flex-direction:column}
+header{background:#15151f;border-bottom:1px solid #2f2f45;display:flex;align-items:center;gap:14px;padding:10px 14px;flex-wrap:wrap}
+.logo{font-size:20px;font-weight:bold;color:#ffd24d}
+nav{display:flex;gap:8px;flex-wrap:wrap}
+nav button{background:#27273a;color:#ddd;padding:8px 14px;font-size:14px;border-radius:20px}
+nav button.active{background:#4f8cff;color:#fff}
+main{flex:1;display:flex;justify-content:center;padding:12px}
+footer{text-align:center;font-size:12px;opacity:.5;padding:10px}
+#frames{width:100%;display:none}
+#frames iframe{width:100%;height:calc(100vh - 130px);border:0;border-radius:10px;background:#000;display:none}
+#chessApp{width:100%;max-width:520px}
+.screen{display:none}.screen.active{display:block}
+h1{text-align:center;margin:10px 0 16px}
+button{background:#4f8cff;color:#fff;border:none;border-radius:10px;padding:12px 18px;font-size:16px;cursor:pointer}
+button.secondary{background:#3a3a4d}button.danger{background:#d9534f}button:disabled{opacity:.5}
+input,select{padding:12px;font-size:16px;border-radius:10px;border:none;width:100%;background:#2c2c3d;color:#fff}
+.card{background:#27273a;padding:16px;border-radius:14px;margin-bottom:12px}
+.row{display:flex;gap:10px;margin-top:10px}.row>*{flex:1;min-width:0}
+label{font-size:14px;opacity:.8}
+.code{font-size:44px;letter-spacing:8px;text-align:center;font-weight:bold;color:#ffd24d;margin:14px 0}
+.msg{text-align:center;opacity:.8}
+.error{color:#ff7b7b;text-align:center;min-height:20px}
+.player{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#27273a;border-radius:10px;margin:6px 0}
+.player.active{outline:2px solid #4f8cff}
+.clock{font-family:monospace;font-size:26px;font-weight:bold}.clock.low{color:#ff6b6b}
+#board{--size:min(94vw,500px);width:var(--size);height:var(--size);display:grid;grid-template-columns:repeat(8,minmax(0,1fr));grid-template-rows:repeat(8,minmax(0,1fr));margin:8px auto;border-radius:6px;overflow:hidden;user-select:none}
+.sq{display:flex;align-items:center;justify-content:center;font-size:calc(var(--size)/11);position:relative;cursor:pointer;line-height:1;min-width:0;min-height:0;overflow:hidden;font-family:"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans","Arial Unicode MS",sans-serif}
+.light{background:#f0d9b5}.dark{background:#b58863}
+.sq.sel{background:#7fc97f!important}
+.sq.last{box-shadow:inset 0 0 0 100px rgba(255,235,59,.35)}
+.sq.check{background:#ff5a5a!important}
+.sq.dot::after{content:"";position:absolute;width:28%;height:28%;border-radius:50%;background:rgba(0,0,0,.28)}
+.sq.cap::after{content:"";position:absolute;inset:4%;border-radius:50%;border:5px solid rgba(0,0,0,.28)}
+.wp{color:#fff;text-shadow:0 0 2px #000,0 0 2px #000,0 0 2px #000}.bp{color:#111}
+#status{text-align:center;font-weight:bold;min-height:24px;margin:6px 0}
+#chatLog{height:140px;overflow-y:auto;background:#15151f;border-radius:10px;padding:8px;font-size:14px}
+#chatLog div{margin-bottom:4px;word-wrap:break-word}
+.me{color:#8ec5ff}.opp{color:#ffd24d}.sys{color:#999;font-style:italic}
+</style>
+</head>
+<body>
+<header><div class="logo">🎮 Game Hub</div><nav id="nav"></nav></header>
+<main>
+<div id="chessApp">
+
+<div id="lobby" class="screen active">
+  <h1>♟ Chess</h1>
+  <div class="card">
+    <b>🤖 Play vs Computer</b>
+    <div class="row">
+      <div><label>Difficulty</label><select id="botLevel"><option value="1">Easy</option><option value="2" selected>Medium</option><option value="3">Hard</option></select></div>
+      <div><label>You play</label><select id="botColor"><option value="r">Random</option><option value="w">White</option><option value="b">Black</option></select></div>
+    </div>
+    <div class="row"><div><label>Minutes per player</label><input id="botMin" type="number" min="1" max="180" value="10"></div></div>
+    <div class="row"><button id="botBtn">Start vs Computer</button></div>
+  </div>
+  <div class="card">
+    <b>👥 Create a room (2 players)</b>
+    <div class="row">
+      <div><label>Minutes per player</label><input id="minutes" type="number" min="1" max="180" value="10"></div>
+      <div><label>Increment (sec)</label><input id="inc" type="number" min="0" max="60" value="0"></div>
+    </div>
+    <div class="row"><button id="createBtn">Create Room</button></div>
+  </div>
+  <div class="card">
+    <b>Join a room</b>
+    <div class="row"><input id="joinCode" placeholder="Enter room code" maxlength="5" style="text-transform:uppercase"></div>
+    <div class="row"><button id="joinBtn" class="secondary">Join Room</button></div>
+  </div>
+  <div class="error" id="lobbyError"></div>
+</div>
+
+<div id="waiting" class="screen">
+  <h1>Room created</h1>
+  <div class="card">
+    <div class="msg">Send this code to your friend:</div>
+    <div class="code" id="roomCode">-----</div>
+    <div class="row"><button id="copyBtn" class="secondary">Copy code</button></div>
+    <p class="msg">Waiting for the other player…</p>
+  </div>
+  <div class="row"><button class="danger" onclick="location.reload()">Cancel</button></div>
+</div>
+
+<div id="game" class="screen">
+  <div class="player" id="oppBox"><span id="oppName">Opponent</span><span class="clock" id="oppClock">10:00</span></div>
+  <div id="board"></div>
+  <div class="player" id="meBox"><span id="meName">You</span><span class="clock" id="meClock">10:00</span></div>
+  <div id="status"></div>
+  <div class="row">
+    <button id="resignBtn" class="danger">Resign</button>
+    <button id="rematchBtn" class="secondary" style="display:none">Rematch</button>
+    <button class="secondary" onclick="location.reload()">Leave</button>
+  </div>
+  <div class="card" id="chatCard" style="margin-top:12px">
+    <b>Chat</b>
+    <div id="chatLog"></div>
+    <div class="row"><input id="chatInput" placeholder="Type a message…" maxlength="200"><button id="sendBtn" style="flex:0 0 80px">Send</button></div>
+  </div>
+</div>
+
+</div>
+<div id="frames"></div>
+</main>
+<footer>Made with ♥ by you and your friend</footer>
+
+<script>
+/* ADD YOUR OTHER GAMES HERE, e.g. { name:'🐍 Snake', url:'snake.html' } */
+const GAMES=[
+  {name:'♟ Chess',type:'chess'},
+];
+const $=id=>document.getElementById(id);
+const frames={};
+function buildNav(){
+  GAMES.forEach((g,i)=>{const b=document.createElement('button');b.textContent=g.name;b.onclick=()=>openGame(i);$('nav').appendChild(b)});
+  if(GAMES.length<2)$('nav').style.display='none';
+}
+function openGame(i){
+  const g=GAMES[i],isChess=g.type==='chess';
+  document.querySelectorAll('nav button').forEach((b,j)=>b.classList.toggle('active',i===j));
+  $('chessApp').style.display=isChess?'':'none';
+  $('frames').style.display=isChess?'none':'block';
+  Object.values(frames).forEach(f=>f.style.display='none');
+  if(!isChess){
+    if(!frames[i]){const f=document.createElement('iframe');f.src=g.url;f.allow='fullscreen; gamepad; accelerometer; gyroscope';$('frames').appendChild(f);frames[i]=f}
+    frames[i].style.display='block';
+  }
+}
+buildNav();openGame(0);
+
+/* ================= CHESS ================= */
+const PIECES={p:'\u265F\uFE0E',r:'\u265C\uFE0E',n:'\u265E\uFE0E',b:'\u265D\uFE0E',q:'\u265B\uFE0E',k:'\u265A\uFE0E'};
+let peer,conn,isHost=false,vs='online',level=2;
+let game,myColor='w',clocks={w:0,b:0},inc=0,minutes=10;
+let lastTick=0,over=false,timer=null,selected=null,legalMoves=[],lastMove=null;
+let wantRematch=false,oppWantsRematch=false;
+
+function show(id){document.querySelectorAll('#chessApp .screen').forEach(s=>s.classList.remove('active'));$(id).classList.add('active')}
+
+/* ---------- ONLINE ROOMS ---------- */
+function randomCode(){const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let r='';for(let i=0;i<5;i++)r+=c[Math.floor(Math.random()*c.length)];return r}
+function createRoom(){
+  minutes=Math.max(1,parseInt($('minutes').value)||10);
+  inc=Math.max(0,parseInt($('inc').value)||0);
+  isHost=true;
+  const code=randomCode();
+  peer=new Peer('chessroom-'+code);
+  peer.on('open',()=>{$('roomCode').textContent=code;show('waiting')});
+  peer.on('error',err=>{if(err.type==='unavailable-id')createRoom();else $('lobbyError').textContent='Connection error: '+err.type});
+  peer.on('connection',c=>{
+    if(conn){c.close();return}
+    conn=c;setupConn();
+    conn.on('open',()=>{
+      const hc=Math.random()<0.5?'w':'b';
+      startGame(hc,minutes,inc,'online');
+      send({type:'start',color:hc==='w'?'b':'w',minutes,inc});
+    });
+  });
+}
+function joinRoom(){
+  const code=$('joinCode').value.trim().toUpperCase();
+  if(code.length<5){$('lobbyError').textContent='Enter the 5-character code.';return}
+  $('lobbyError').textContent='Connecting…';
+  peer=new Peer();
+  peer.on('open',()=>{conn=peer.connect('chessroom-'+code,{reliable:true});setupConn()});
+  peer.on('error',err=>{$('lobbyError').textContent=err.type==='peer-unavailable'?'Room not found. Check the code.':'Connection error: '+err.type});
+}
+function setupConn(){
+  conn.on('data',onMessage);
+  conn.on('close',()=>{if(!over&&game)endGame('Opponent disconnected. You win!');addChat('Opponent left the room.','sys')});
+}
+function send(o){if(conn&&conn.open)conn.send(o)}
+
+function onMessage(m){
+  if(m.type==='start')startGame(m.color,m.minutes,m.inc,'online');
+  else if(m.type==='move'){
+    const opp=myColor==='w'?'b':'w';
+    const mv=game.move({from:m.from,to:m.to,promotion:m.promotion||'q'});
+    if(mv){clocks[opp]=m.time;lastTick=Date.now();lastMove={from:m.from,to:m.to};selected=null;legalMoves=[];render();checkEnd()}
+  }
+  else if(m.type==='chat')addChat(m.text,'opp','Opponent');
+  else if(m.type==='resign'&&!over)endGame('Opponent resigned. You win!');
+  else if(m.type==='timeout'&&!over)endGame(m.loser===myColor?'You ran out of time. You lose.':'Opponent ran out of time. You win!');
+  else if(m.type==='rematch'){oppWantsRematch=true;addChat('Opponent wants a rematch.','sys');tryRematch()}
+}
+
+/* ---------- GAME ---------- */
+function startBot(){
+  level=parseInt($('botLevel').value);
+  const c=$('botColor').value;
+  const color=c==='r'?(Math.random()<0.5?'w':'b'):c;
+  startGame(color,Math.max(1,parseInt($('botMin').value)||10),0,'bot');
+}
+function startGame(color,mins,increment,mode){
+  vs=mode;game=new Chess();
+  myColor=color;minutes=mins;inc=increment;
+  clocks={w:mins*60000,b:mins*60000};
+  over=false;selected=null;legalMoves=[];lastMove=null;
+  wantRematch=false;oppWantsRematch=false;lastTick=Date.now();
+  const bot=mode==='bot';
+  $('meName').textContent='You ('+(color==='w'?'White':'Black')+')';
+  $('oppName').textContent=(bot?'Computer · '+['','Easy','Medium','Hard'][level]:'Opponent')+' ('+(color==='w'?'Black':'White')+')';
+  $('chatCard').style.display=bot?'none':'';
+  $('resignBtn').style.display='';
+  $('rematchBtn').style.display='none';$('rematchBtn').disabled=false;
+  show('game');render();
+  clearInterval(timer);timer=setInterval(tick,200);
+  if(bot){if(color==='b')botMove()}else addChat('Game started. Good luck!','sys');
+}
+function tick(){
+  if(over)return;
+  const now=Date.now(),turn=game.turn();
+  clocks[turn]-=now-lastTick;lastTick=now;
+  if(clocks[turn]<=0){
+    clocks[turn]=0;
+    if(vs==='online'&&turn===myColor)send({type:'timeout',loser:myColor});
+    endGame(turn===myColor?'You ran out of time. You lose.':'Opponent ran out of time. You win!');
+  }
+  renderClocks();
+}
+function fmt(ms){const s=Math.ceil(ms/1000);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')}
+function renderClocks(){
+  const opp=myColor==='w'?'b':'w';
+  $('meClock').textContent=fmt(clocks[myColor]);
+  $('oppClock').textContent=fmt(clocks[opp]);
+  $('meClock').classList.toggle('low',clocks[myColor]<20000);
+  $('oppClock').classList.toggle('low',clocks[opp]<20000);
+  const turn=game.turn();
+  $('meBox').classList.toggle('active',!over&&turn===myColor);
+  $('oppBox').classList.toggle('active',!over&&turn!==myColor);
+}
+function render(){
+  const el=$('board');el.innerHTML='';
+  const b=game.board(),flip=myColor==='b';
+  let kingSq=null;
+  if(game.in_check())for(let r=0;r<8;r++)for(let c=0;c<8;c++){const p=b[r][c];if(p&&p.type==='k'&&p.color===game.turn())kingSq='abcdefgh'[c]+(8-r)}
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+    const rr=flip?7-r:r,cc=flip?7-c:c,name='abcdefgh'[cc]+(8-rr),p=b[rr][cc];
+    const d=document.createElement('div');
+    d.className='sq '+(((rr+cc)%2===0)?'light':'dark');
+    if(lastMove&&(name===lastMove.from||name===lastMove.to))d.classList.add('last');
+    if(name===selected)d.classList.add('sel');
+    if(name===kingSq)d.classList.add('check');
+    if(legalMoves.find(m=>m.to===name))d.classList.add(p?'cap':'dot');
+    if(p){const s=document.createElement('span');s.textContent=PIECES[p.type];s.className=p.color==='w'?'wp':'bp';d.appendChild(s)}
+    d.onclick=()=>onSquare(name);
+    el.appendChild(d);
+  }
+  renderClocks();updateStatus();
+}
+function onSquare(name){
+  if(over||game.turn()!==myColor)return;
+  if(selected&&legalMoves.find(m=>m.to===name)){playMove(selected,name);return}
+  const p=game.get(name);
+  if(p&&p.color===myColor){selected=name;legalMoves=game.moves({square:name,verbose:true})}
+  else{selected=null;legalMoves=[]}
+  render();
+}
+function playMove(from,to){
+  const mv=game.move({from,to,promotion:'q'});
+  if(!mv)return;
+  clocks[myColor]+=inc*1000;lastTick=Date.now();
+  lastMove={from,to};selected=null;legalMoves=[];
+  send({type:'move',from,to,promotion:mv.promotion,time:clocks[myColor]});
+  render();checkEnd();
+  if(vs==='bot'&&!over)botMove();
+}
+function updateStatus(){
+  if(over)return;
+  let t=game.turn()===myColor?'Your turn':(vs==='bot'?'Computer is thinking…':"Opponent's turn");
+  if(game.in_check())t+=' — Check!';
+  $('status').textContent=t;
+}
+function checkEnd(){
+  if(!game.game_over())return;
+  if(game.in_checkmate())endGame(game.turn()===myColor?'Checkmate. You lose.':'Checkmate! You win!');
+  else if(game.in_stalemate())endGame('Stalemate. Draw.');
+  else endGame('Draw.');
+}
+function endGame(text){
+  if(over)return;
+  over=true;$('status').textContent=text;
+  $('resignBtn').style.display='none';$('rematchBtn').style.display='';
+  renderClocks();
+}
+
+/* ---------- COMPUTER OPPONENT ---------- */
+const VAL={p:100,n:320,b:330,r:500,q:900,k:0};
+const LEVELS={1:{d:1,r:0.5},2:{d:2,r:0.08},3:{d:3,r:0}};
+function evalSide(){
+  let s=0;const b=game.board();
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+    const p=b[r][c];if(!p)continue;
+    let v=VAL[p.type];
+    if(p.type==='p'||p.type==='n'||p.type==='b')v+=(3.5-Math.abs(3.5-c)+3.5-Math.abs(3.5-r))*4;
+    if(p.type==='p')v+=(p.color==='w'?6-r:r-1)*5;
+    s+=p.color==='w'?v:-v;
+  }
+  return game.turn()==='w'?s:-s;
+}
+function ordered(){
+  const ms=game.moves({verbose:true}).filter(m=>!m.promotion||m.promotion==='q');
+  return ms.sort((a,b)=>(b.captured?VAL[b.captured]*10-VAL[b.piece]:0)-(a.captured?VAL[a.captured]*10-VAL[a.piece]:0));
+}
+function negamax(d,a,b){
+  if(game.in_checkmate())return -99999-d;
+  if(game.in_draw())return 0;
+  if(d===0)return evalSide();
+  for(const m of ordered()){
+    game.move({from:m.from,to:m.to,promotion:'q'});
+    const s=-negamax(d-1,-b,-a);
+    game.undo();
+    if(s>=b)return b;
+    if(s>a)a=s;
+  }
+  return a;
+}
+function botMove(){
+  $('status').textContent='Computer is thinking…';
+  setTimeout(()=>{
+    if(over)return;
+    const L=LEVELS[level],ms=ordered();
+    if(!ms.length)return;
+    let best;
+    if(Math.random()<L.r)best=ms[Math.floor(Math.random()*ms.length)];
+    else{
+      let bs=-Infinity;
+      for(const m of ms){
+        game.move({from:m.from,to:m.to,promotion:'q'});
+        const s=-negamax(L.d-1,-Infinity,Infinity)+Math.random()*8;
+        game.undo();
+        if(s>bs){bs=s;best=m}
+      }
+    }
+    const bc=myColor==='w'?'b':'w';
+    game.move({from:best.from,to:best.to,promotion:'q'});
+    lastTick=Date.now();lastMove={from:best.from,to:best.to};
+    render();checkEnd();
+  },60);
+}
+
+/* ---------- REMATCH ---------- */
+function requestRematch(){
+  if(vs==='bot'){startGame(myColor==='w'?'b':'w',minutes,0,'bot');return}
+  wantRematch=true;$('rematchBtn').disabled=true;
+  send({type:'rematch'});addChat('You asked for a rematch.','sys');tryRematch();
+}
+function tryRematch(){
+  if(wantRematch&&oppWantsRematch&&isHost){
+    const nc=myColor==='w'?'b':'w';
+    startGame(nc,minutes,inc,'online');
+    send({type:'start',color:nc==='w'?'b':'w',minutes,inc});
+  }
+}
+
+/* ---------- CHAT ---------- */
+function addChat(text,cls,who){
+  const d=document.createElement('div');d.className=cls;
+  d.textContent=(who?who+': ':'')+text;
+  $('chatLog').appendChild(d);$('chatLog').scrollTop=$('chatLog').scrollHeight;
+}
+function sendChat(){
+  const t=$('chatInput').value.trim();if(!t)return;
+  send({type:'chat',text:t});addChat(t,'me','You');$('chatInput').value='';
+}
+
+/* ---------- BUTTONS ---------- */
+$('botBtn').onclick=startBot;
+$('createBtn').onclick=createRoom;
+$('joinBtn').onclick=joinRoom;
+$('copyBtn').onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText($('roomCode').textContent);$('copyBtn').textContent='Copied!'};
+$('resignBtn').onclick=()=>{if(over)return;send({type:'resign'});endGame('You resigned.')};
+$('rematchBtn').onclick=requestRematch;
+$('sendBtn').onclick=sendChat;
+$('chatInput').addEventListener('keydown',e=>{if(e.key==='Enter')sendChat()});
+</script>
+</body>
+</html>
